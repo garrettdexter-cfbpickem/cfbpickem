@@ -1,22 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { syncWeek } from "@/lib/sync";
 
+export const dynamic = "force-dynamic";
+
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get("x-admin-secret");
-  if (!secret || secret !== process.env.ADMIN_SECRET) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  const adminSecretHeader = req.headers.get("x-admin-secret");
+  const validHeader = Boolean(
+    process.env.ADMIN_SECRET && adminSecretHeader === process.env.ADMIN_SECRET
+  );
+
+  if (!validHeader) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = await req.json().catch(() => ({}));
-  const week = Number(body.week);
-  if (!week || week < 1) {
-    return NextResponse.json({ error: "week is required" }, { status: 400 });
+  const week = Number(body?.week);
+
+  if (!week || Number.isNaN(week)) {
+    return NextResponse.json({ error: "Missing or invalid 'week' in request body" }, { status: 400 });
   }
 
-  try {
-    const result = await syncWeek(week);
-    return NextResponse.json({ ok: true, week, ...result });
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message }, { status: 500 });
-  }
+  const result = await syncWeek(week);
+
+  return NextResponse.json({ week, ...result });
 }

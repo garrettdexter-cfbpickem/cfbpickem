@@ -1,46 +1,39 @@
 import type { CombinedStandingRow } from "@/lib/scoring";
 
-export default function CombinedStandingsTable({
-  rows,
-}: {
-  rows: CombinedStandingRow[];
-}) {
+export default function CombinedStandingsTable({ rows }: { rows: CombinedStandingRow[] }) {
   return (
-    <table className="w-full text-left border-collapse">
-      <thead>
-        <tr className="border-b text-sm text-neutral-500">
-          <th className="py-2">#</th>
-          <th className="py-2">Player</th>
-          <th className="py-2 text-right">Weekly</th>
-          <th className="py-2 text-right">Playoff</th>
-          <th className="py-2 text-right">Heisman</th>
-          <th className="py-2 text-right font-semibold">Total</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r, i) => (
-          <tr key={r.playerId} className="border-b last:border-0">
-            <td className="py-2 text-neutral-400">{i + 1}</td>
-            <td className="py-2 font-medium">
-              {r.playerName}
-              <div className="text-xs text-neutral-400 font-normal">
-                {r.weeklyWins}-{r.weeklyLosses}-{r.weeklyPushes} ATS
-              </div>
-            </td>
-            <td className="py-2 text-right">{r.weeklyPoints}</td>
-            <td className="py-2 text-right">{r.playoffPoints}</td>
-            <td className="py-2 text-right">{r.heismanPoints}</td>
-            <td className="py-2 text-right font-semibold">{r.total}</td>
-          </tr>
-        ))}
-        {rows.length === 0 && (
+    <div className="overflow-x-auto rounded-lg border bg-white">
+      <table className="w-full text-left text-sm">
+        <thead className="border-b bg-neutral-50 text-neutral-600">
           <tr>
-            <td colSpan={6} className="py-4 text-center text-neutral-400">
-              No results yet.
-            </td>
+            <th className="px-3 py-2">#</th>
+            <th className="px-3 py-2">Player</th>
+            <th className="px-3 py-2">Weekly</th>
+            <th className="px-3 py-2">Playoff</th>
+            <th className="px-3 py-2">Heisman</th>
+            <th className="px-3 py-2">Total</th>
           </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={row.playerId} className="border-b last:border-b-0">
+              <td className="px-3 py-2">{i + 1}</td>
+              <td className="px-3 py-2 font-medium">{row.playerName}</td>
+              <td className="px-3 py-2">{row.weeklyPoints}</td>
+              <td className="px-3 py-2">{row.playoffPoints}</td>
+              <td className="px-3 py-2">{row.heismanPoints}</td>
+              <td className="px-3 py-2 font-bold">{row.totalPoints}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-3 py-4 text-center text-neutral-500">
+                No players yet.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   );
 }

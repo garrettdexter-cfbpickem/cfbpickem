@@ -1,39 +1,36 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
+import { useFormState } from "react-dom";
 import { adminLogin, type AdminLoginState } from "@/app/admin/actions";
-
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="bg-maroon text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
-    >
-      {pending ? "Checking..." : "Log in"}
-    </button>
-  );
-}
+import SubmitButton from "./SubmitButton";
 
 export default function AdminLoginForm() {
-  const [state, formAction] = useFormState<AdminLoginState, FormData>(adminLogin, {});
+  const initialState: AdminLoginState = { ok: false };
+  const [state, formAction] = useFormState(adminLogin, initialState);
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form action={formAction} className="mx-auto max-w-sm space-y-4 rounded-lg border bg-white p-6">
+      <h1 className="text-lg font-bold">Admin Login</h1>
       {state.error && (
-        <p className="text-red-700 bg-red-50 border border-red-200 rounded p-3 text-sm">
+        <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {state.error}
-        </p>
+        </div>
       )}
-      <input
-        type="password"
-        name="password"
-        placeholder="Admin password"
-        required
-        className="border rounded-lg px-3 py-2 w-full"
-      />
-      <SubmitButton />
+      <div>
+        <label className="block text-sm font-medium">Password</label>
+        <input
+          type="password"
+          name="password"
+          required
+          className="mt-1 w-full rounded border px-3 py-2 text-sm"
+        />
+      </div>
+      <SubmitButton
+        pendingText="Logging in…"
+        className="w-full rounded bg-lsuPurple px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+      >
+        Log In
+      </SubmitButton>
     </form>
   );
 }

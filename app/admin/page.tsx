@@ -6,34 +6,40 @@ export const dynamic = "force-dynamic";
 
 export default async function AdminHomePage() {
   await requireAdmin();
-  const week = await getCurrentWeek();
+  const currentWeek = await getCurrentWeek();
 
   return (
-    <div className="max-w-md space-y-4">
+    <div className="space-y-4">
       <h1 className="text-xl font-bold">Admin</h1>
-      <nav className="flex flex-col gap-2">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Link
-          href={`/admin/week/${week}`}
-          className="border rounded-lg p-3 bg-white hover:bg-neutral-100"
+          href={`/admin/week/${currentWeek}`}
+          className="rounded-lg border bg-white p-4 font-medium hover:border-lsuGold"
         >
-          Week {week} Games
+          Week Games (Week {currentWeek})
         </Link>
         <Link
           href="/admin/playoff"
-          className="border rounded-lg p-3 bg-white hover:bg-neutral-100"
+          className="rounded-lg border bg-white p-4 font-medium hover:border-lsuGold"
         >
           Playoff Pool
         </Link>
         <Link
           href="/admin/heisman"
-          className="border rounded-lg p-3 bg-white hover:bg-neutral-100"
+          className="rounded-lg border bg-white p-4 font-medium hover:border-lsuGold"
         >
           Heisman Pool
         </Link>
-      </nav>
-      <a href="/admin/logout" className="inline-block text-sm text-maroon underline">
+        <Link
+          href="/admin/players"
+          className="rounded-lg border bg-white p-4 font-medium hover:border-lsuGold"
+        >
+          Players
+        </Link>
+      </div>
+      <Link href="/admin/logout" className="inline-block text-sm text-neutral-600 underline">
         Log out
-      </a>
+      </Link>
     </div>
   );
 }

@@ -2,127 +2,132 @@
 
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase";
+import { getPreseasonSubmission } from "@/lib/data";
 
-export type PreseasonActionState = { ok: boolean; error?: string };
+export interface SubmitPreseasonPicksState {
+  ok: boolean;
+  error?: string;
+}
 
-/**
- * One-time preseason submission: 12 Playoff Pool teams + 5 Heisman
- * candidates, all free text (the actual 12-team field doesn't exist yet
- * preseason, so there's nothing to pick from a dropdown). Whatever names
- * players type get upserted into playoff_teams / heisman_candidates (with
- * default false/0 values) so the admin has rows to mark results against
- * later, without ever clobbering existing admin-entered data for a team
- * someone else already typed.
- */
+function parseLines(raw: FormDataEntryValue | null): string[] {
+  if (typeof raw !== "string") return [];
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    result.push(trimmed);
+  }
+  return result;
+}
+
 export async function submitPreseasonPicks(
   playerName: string,
-  _prevState: PreseasonActionState,
+  prevState: SubmitPreseasonPicksState,
   formData: FormData
-): Promise<PreseasonActionState> {
-  const sb = supabaseAdmin();
+): Promise<SubmitPreseasonPicksState> {
+  const supabase = supabaseAdmin();
 
-  await sb.from("players").upsert({ name: playerName }, { onConflict: "name" });
-  const { data: player, error: playerErr } = await sb
+  // Upsert the player by name (create if new).
+  const { data: existingPlayer, error: findError } = await supabase
     .from("players")
-    .select("id")
+    .select("*")
     .eq("name", playerName)
-    .single();
-  if (playerErr || !player) {
-    return { ok: false, error: "Could not find or create that player." };
-  }
-
-  const { data: existingSubmission, error: submissionLookupErr } = await sb
-    .from("preseason_submissions")
-    .select("id")
-    .eq("player_id", player.id)
     .maybeSingle();
-  if (submissionLookupErr) {
-    return { ok: false, error: "Something went wrong. Please try again." };
+  if (findError) {
+    return { ok: false, error: "Something went wrong looking up your player record." };
   }
-  if (existingSubmission) {
+
+  let playerId = existingPlayer?.id as string | undefined;
+  if (!playerId) {
+    const { data: created, error: createError } = await supabase
+      .from("players")
+      .insert({ name: playerName })
+      .select("*")
+      .single();
+    if (createError || !created) {
+      return { ok: false, error: "Something went wrong creating your player record." };
+    }
+    playerId = created.id;
+  }
+  const confirmedPlayerId: string = playerId as string;
+
+  const alreadySubmitted = await getPreseasonSubmission(confirmedPlayerId);
+  if (alreadySubmitted) {
     return {
       ok: false,
-      error:
-        "You've already submitted your preseason picks — they can't be changed once submitted.",
+      error: "You've already submitted your preseason picks — they can't be changed once submitted.",
     };
   }
 
-  const playoffTeams = Array.from({ length: 12 }, (_, i) =>
-    String(formData.get(`playoff_team_${i}`) ?? "").trim()
-  ).filter(Boolean);
-  const uniquePlayoffTeams = Array.from(new Set(playoffTeams));
-  if (uniquePlayoffTeams.length !== 12) {
-    return {
-      ok: false,
-      error: `Enter exactly 12 distinct teams for your Playoff Pool picks (you entered ${uniquePlayoffTeams.length}).`,
-    };
+  const teamNames = parseLines(formData.get("playoff_teams"));
+  const candidateNames = parseLines(formData.get("heisman_candidates"));
+
+  if (teamNames.length === 0 && candidateNames.length === 0) {
+    return { ok: false, error: "Please enter at least one playoff team or Heisman candidate." };
   }
 
-  const heismanCandidates = Array.from({ length: 5 }, (_, i) =>
-    String(formData.get(`heisman_${i}`) ?? "").trim()
-  ).filter(Boolean);
-  const uniqueHeisman = Array.from(new Set(heismanCandidates));
-  if (uniqueHeisman.length !== 5) {
-    return {
-      ok: false,
-      error: `Enter exactly 5 distinct Heisman candidates (you entered ${uniqueHeisman.length}).`,
-    };
+  if (teamNames.length > 0) {
+    const { error: teamsError } = await supabase
+      .from("playoff_teams")
+      .upsert(
+        teamNames.map((team_name) => ({ team_name })),
+        { onConflict: "team_name", ignoreDuplicates: true }
+      );
+    if (teamsError) {
+      return { ok: false, error: "Something went wrong saving your playoff teams." };
+    }
+
+    const { error: playoffPicksError } = await supabase
+      .from("playoff_picks")
+      .upsert(
+        teamNames.map((team_name) => ({ player_id: confirmedPlayerId, team_name })),
+        { onConflict: "player_id,team_name" }
+      );
+    if (playoffPicksError) {
+      return { ok: false, error: "Something went wrong saving your playoff picks." };
+    }
   }
 
-  const { error: teamsUpsertErr } = await sb
-    .from("playoff_teams")
-    .upsert(
-      uniquePlayoffTeams.map((team_name) => ({ team_name })),
-      { onConflict: "team_name", ignoreDuplicates: true }
-    );
-  if (teamsUpsertErr) {
-    return { ok: false, error: "Failed to save playoff teams. Please try again." };
+  if (candidateNames.length > 0) {
+    const { error: candidatesError } = await supabase
+      .from("heisman_candidates")
+      .upsert(
+        candidateNames.map((candidate_name) => ({ candidate_name })),
+        { onConflict: "candidate_name", ignoreDuplicates: true }
+      );
+    if (candidatesError) {
+      return { ok: false, error: "Something went wrong saving your Heisman candidates." };
+    }
+
+    const { error: heismanPicksError } = await supabase
+      .from("heisman_picks")
+      .upsert(
+        candidateNames.map((candidate_name) => ({ player_id: confirmedPlayerId, candidate_name })),
+        { onConflict: "player_id,candidate_name" }
+      );
+    if (heismanPicksError) {
+      return { ok: false, error: "Something went wrong saving your Heisman picks." };
+    }
   }
 
-  const { error: candidatesUpsertErr } = await sb
-    .from("heisman_candidates")
-    .upsert(
-      uniqueHeisman.map((candidate_name) => ({ candidate_name })),
-      { onConflict: "candidate_name", ignoreDuplicates: true }
-    );
-  if (candidatesUpsertErr) {
-    return { ok: false, error: "Failed to save Heisman candidates. Please try again." };
-  }
-
-  const { error: playoffPickErr } = await sb.from("playoff_picks").upsert(
-    uniquePlayoffTeams.map((team_name) => ({ player_id: player.id, team_name })),
-    { onConflict: "player_id,team_name" }
-  );
-  if (playoffPickErr) {
-    return { ok: false, error: "Failed to save your playoff picks. Please try again." };
-  }
-
-  const { error: heismanPickErr } = await sb.from("heisman_picks").upsert(
-    uniqueHeisman.map((candidate_name) => ({
-      player_id: player.id,
-      candidate_name,
-    })),
-    { onConflict: "player_id,candidate_name" }
-  );
-  if (heismanPickErr) {
-    return { ok: false, error: "Failed to save your Heisman picks. Please try again." };
-  }
-
-  const { error: lockErr } = await sb
+  const { error: submissionError } = await supabase
     .from("preseason_submissions")
-    .insert({ player_id: player.id });
-  if (lockErr) {
+    .insert({ player_id: confirmedPlayerId });
+  if (submissionError) {
     return {
       ok: false,
-      error: "Failed to lock in your submission. Please try again.",
+      error: "You've already submitted your preseason picks — they can't be changed once submitted.",
     };
   }
 
+  revalidatePath("/picks/preseason");
   revalidatePath(`/picks/preseason/${encodeURIComponent(playerName)}`);
+  revalidatePath(`/picks/${encodeURIComponent(playerName)}`);
   revalidatePath("/");
   revalidatePath("/standings");
-  revalidatePath("/admin/playoff");
-  revalidatePath("/admin/heisman");
 
   return { ok: true };
 }

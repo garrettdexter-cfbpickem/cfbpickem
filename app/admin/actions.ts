@@ -4,167 +4,191 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { supabaseAdmin } from "@/lib/supabase";
-import { requireAdmin, ADMIN_COOKIE_NAME } from "@/lib/adminAuth";
-import { getGamesForWeek, getPlayoffTeams, getHeismanCandidates } from "@/lib/data";
 import { syncWeek, lockLinesForWeek } from "@/lib/sync";
+import { ADMIN_SESSION_COOKIE } from "@/lib/adminAuth";
 
-export type AdminLoginState = { error?: string };
+export interface AdminLoginState {
+  ok: boolean;
+  error?: string;
+}
 
 export async function adminLogin(
-  _prevState: AdminLoginState,
+  prevState: AdminLoginState,
   formData: FormData
 ): Promise<AdminLoginState> {
-  const submitted = String(formData.get("password") ?? "");
-  const expected = process.env.ADMIN_SECRET;
+  const password = String(formData.get("password") ?? "");
+  const secret = process.env.ADMIN_SECRET;
 
-  if (!expected || submitted !== expected) {
-    return { error: "Incorrect password." };
+  if (!secret || password !== secret) {
+    return { ok: false, error: "Incorrect password" };
   }
 
-  cookies().set(ADMIN_COOKIE_NAME, expected, {
+  cookies().set(ADMIN_SESSION_COOKIE, secret, {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 30,
     path: "/",
-    maxAge: 60 * 60 * 24 * 30, // 30 days
   });
 
   redirect("/admin");
 }
 
-export async function adminLogout() {
-  cookies().set(ADMIN_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: true,
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-  redirect("/");
-}
+export async function saveGameSelection(week: number, formData: FormData): Promise<void> {
+  const supabase = supabaseAdmin();
 
-/** Update included_in_pickem for every game in a week based on which
- * checkboxes were checked in the admin week page's form. */
-export async function saveWeekSelection(week: number, formData: FormData) {
-  await requireAdmin();
-  const sb = supabaseAdmin();
+  const { data: games, error } = await supabase
+    .from("games")
+    .select("id")
+    .eq("week", week);
+  if (error) {
+    throw new Error(`Failed to load games for week ${week}: ${error.message}`);
+  }
 
-  const games = await getGamesForWeek(week);
-  for (const game of games) {
-    const checked = formData.get(`include_${game.id}`) != null;
-    if (checked === game.included_in_pickem) continue;
-    const { error } = await sb
+  for (const game of games ?? []) {
+    const included = formData.get(`game_${game.id}`) === "on";
+    const { error: updateError } = await supabase
       .from("games")
-      .update({ included_in_pickem: checked })
+      .update({ included_in_pickem: included })
       .eq("id", game.id);
-    if (error) throw error;
+    if (updateError) {
+      throw new Error(`Failed to update game ${game.id}: ${updateError.message}`);
+    }
   }
 
   revalidatePath(`/admin/week/${week}`);
   revalidatePath(`/week/${week}`);
-  revalidatePath(`/picks`);
+  revalidatePath("/");
+  revalidatePath("/picks");
+}
+
+export async function syncWeekAction(week: number): Promise<void> {
+  await syncWeek(week);
+  revalidatePath(`/admin/week/${week}`);
+  revalidatePath(`/week/${week}`);
   revalidatePath("/");
 }
 
-/** Pull this week's games/lines from CFBD (admin-triggered, calls
- * lib/sync.ts directly rather than going through the API route). */
-export async function syncWeekAction(week: number) {
-  await requireAdmin();
-  await syncWeek(week);
-  revalidatePath(`/admin/week/${week}`);
-}
-
-/** Lock DraftKings lines for this week's included games right now (manual
- * re-trigger of the Thursday-noon cron job). */
-export async function lockLinesAction(week: number) {
-  await requireAdmin();
+export async function lockLinesAction(week: number): Promise<void> {
   await lockLinesForWeek(week);
   revalidatePath(`/admin/week/${week}`);
   revalidatePath(`/week/${week}`);
   revalidatePath("/");
 }
 
-export async function addPlayoffTeam(formData: FormData) {
-  await requireAdmin();
-  const name = String(formData.get("team_name") ?? "").trim();
-  if (!name) return;
+export async function addPlayoffTeamAction(formData: FormData): Promise<void> {
+  const teamName = String(formData.get("team_name") ?? "").trim();
+  if (!teamName) return;
 
-  const sb = supabaseAdmin();
-  const { error } = await sb
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
     .from("playoff_teams")
-    .upsert({ team_name: name }, { onConflict: "team_name", ignoreDuplicates: true });
-  if (error) throw error;
-
-  revalidatePath("/admin/playoff");
-}
-
-export async function savePlayoffTeams(formData: FormData) {
-  await requireAdmin();
-  const sb = supabaseAdmin();
-
-  const teams = await getPlayoffTeams();
-  for (const team of teams) {
-    const made_field = formData.get(`made_field_${team.id}`) != null;
-    const had_bye = formData.get(`had_bye_${team.id}`) != null;
-    const roundsRaw = formData.get(`rounds_won_${team.id}`);
-    const parsed = Number(roundsRaw ?? 0);
-    const rounds_won = Number.isFinite(parsed) ? Math.max(0, Math.trunc(parsed)) : 0;
-
-    const { error } = await sb
-      .from("playoff_teams")
-      .update({
-        made_field,
-        had_bye,
-        rounds_won,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", team.id);
-    if (error) throw error;
+    .upsert({ team_name: teamName }, { onConflict: "team_name", ignoreDuplicates: true });
+  if (error) {
+    throw new Error(`Failed to add playoff team: ${error.message}`);
   }
 
   revalidatePath("/admin/playoff");
-  revalidatePath("/");
+  revalidatePath("/picks/preseason");
   revalidatePath("/standings");
 }
 
-export async function addHeismanCandidate(formData: FormData) {
-  await requireAdmin();
-  const name = String(formData.get("candidate_name") ?? "").trim();
-  if (!name) return;
+export async function savePlayoffTeamAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
 
-  const sb = supabaseAdmin();
-  const { error } = await sb
+  const madeField = formData.get("made_field") === "on";
+  const hadBye = formData.get("had_bye") === "on";
+  const roundsWon = Number(formData.get("rounds_won") ?? 0) || 0;
+
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from("playoff_teams")
+    .update({
+      made_field: madeField,
+      had_bye: hadBye,
+      rounds_won: roundsWon,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) {
+    throw new Error(`Failed to update playoff team: ${error.message}`);
+  }
+
+  revalidatePath("/admin/playoff");
+  revalidatePath("/picks/preseason");
+  revalidatePath("/standings");
+  revalidatePath("/");
+}
+
+export async function addHeismanCandidateAction(formData: FormData): Promise<void> {
+  const candidateName = String(formData.get("candidate_name") ?? "").trim();
+  if (!candidateName) return;
+
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
     .from("heisman_candidates")
     .upsert(
-      { candidate_name: name },
+      { candidate_name: candidateName },
       { onConflict: "candidate_name", ignoreDuplicates: true }
     );
-  if (error) throw error;
-
-  revalidatePath("/admin/heisman");
-}
-
-export async function saveHeismanCandidates(formData: FormData) {
-  await requireAdmin();
-  const sb = supabaseAdmin();
-
-  const candidates = await getHeismanCandidates();
-  for (const candidate of candidates) {
-    const is_finalist = formData.get(`is_finalist_${candidate.id}`) != null;
-    const is_winner = formData.get(`is_winner_${candidate.id}`) != null;
-
-    const { error } = await sb
-      .from("heisman_candidates")
-      .update({
-        is_finalist,
-        is_winner,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", candidate.id);
-    if (error) throw error;
+  if (error) {
+    throw new Error(`Failed to add Heisman candidate: ${error.message}`);
   }
 
   revalidatePath("/admin/heisman");
-  revalidatePath("/");
+  revalidatePath("/picks/preseason");
   revalidatePath("/standings");
+}
+
+export async function saveHeismanCandidateAction(formData: FormData): Promise<void> {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+
+  const isFinalist = formData.get("is_finalist") === "on";
+  const isWinner = formData.get("is_winner") === "on";
+
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from("heisman_candidates")
+    .update({
+      is_finalist: isFinalist,
+      is_winner: isWinner,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+  if (error) {
+    throw new Error(`Failed to update Heisman candidate: ${error.message}`);
+  }
+
+  revalidatePath("/admin/heisman");
+  revalidatePath("/picks/preseason");
+  revalidatePath("/standings");
+  revalidatePath("/");
+}
+
+export interface AddPlayerState {
+  ok: boolean;
+  error?: string;
+  name?: string;
+}
+
+export async function addPlayerAction(formData: FormData): Promise<AddPlayerState> {
+  const name = String(formData.get("name") ?? "").trim();
+  if (!name) {
+    return { ok: false, error: "Please enter a name." };
+  }
+
+  const supabase = supabaseAdmin();
+  const { error } = await supabase
+    .from("players")
+    .upsert({ name }, { onConflict: "name", ignoreDuplicates: true });
+  if (error) {
+    return { ok: false, error: `Failed to add player: ${error.message}` };
+  }
+
+  revalidatePath("/admin/players");
+  revalidatePath("/picks");
+
+  return { ok: true, name };
 }

@@ -2,117 +2,135 @@ import { supabaseAdmin } from "./supabase";
 import { getGames, getLines } from "./cfbd";
 import { computeAtsResult } from "./scoring";
 
-function seasonYear(): number {
-  return Number(process.env.SEASON_YEAR ?? new Date().getFullYear());
+function getSeasonYear(): number {
+  const year = process.env.SEASON_YEAR;
+  if (!year) {
+    throw new Error(
+      "Missing SEASON_YEAR environment variable. Set it in your .env.local (see .env.example)."
+    );
+  }
+  return Number(year);
 }
 
 /**
- * Pull this week's games + betting lines from CFBD and upsert them into
- * the `games` table. Safe to call repeatedly (e.g. manually from the admin
- * week page) — kickoff times, scores, and team names get refreshed, but the
- * spread is never overwritten for a game that already has `spread_locked`
- * set (that game's number was locked in from DraftKings and must stay put
- * until an admin/cron explicitly re-locks it). `included_in_pickem` is left
- * untouched entirely — this function never selects games for the slate.
+ * Pulls games + DraftKings lines for the given week from CFBD and upserts
+ * them into the games table (matched on cfbd_game_id).
+ *
+ * - Never overwrites `spread` for a game that already has spread_locked =
+ *   true - the previously-locked number is preserved no matter what CFBD
+ *   returns now.
+ * - Never touches `included_in_pickem` - that's purely an admin decision
+ *   made on the admin week page, independent of syncing.
+ * - Always updates kickoff_time, scores, status, and team names.
  */
-export async function syncWeek(week: number) {
-  const year = seasonYear();
-  const sb = supabaseAdmin();
+export async function syncWeek(week: number): Promise<{ upserted: number }> {
+  const season = getSeasonYear();
+  const supabase = supabaseAdmin();
 
-  const [games, lines, existingRes] = await Promise.all([
-    getGames(year, week),
-    getLines(year, week),
-    sb
-      .from("games")
-      .select("cfbd_game_id, spread, spread_locked")
-      .eq("season", year)
-      .eq("week", week),
+  const [games, lines] = await Promise.all([
+    getGames(season, week),
+    getLines(season, week),
   ]);
-  if (existingRes.error) throw existingRes.error;
 
-  const existingByCfbdId = new Map(
-    (existingRes.data ?? []).map((g: any) => [g.cfbd_game_id, g])
-  );
-
-  const lineByMatchup = new Map(
-    lines.map((l) => [`${l.home_team}__${l.away_team}`, l.spread])
-  );
-
-  const rows = games.map((g) => {
-    const existing = existingByCfbdId.get(g.cfbd_game_id);
-    const locked = existing?.spread_locked === true;
-    const newSpread = lineByMatchup.get(`${g.home_team}__${g.away_team}`) ?? null;
-
-    return {
-      cfbd_game_id: g.cfbd_game_id,
-      season: year,
-      week,
-      home_team: g.home_team,
-      away_team: g.away_team,
-      // Never overwrite a locked spread — keep whatever is already stored.
-      spread: locked ? existing.spread : newSpread,
-      kickoff_time: g.kickoff_time,
-      home_score: g.home_score,
-      away_score: g.away_score,
-      status: g.completed ? "final" : "scheduled",
-      updated_at: new Date().toISOString(),
-    };
-  });
-
-  if (rows.length === 0) {
-    return { synced: 0 };
+  const lineByMatchup = new Map<string, number | null>();
+  for (const line of lines) {
+    lineByMatchup.set(`${line.home_team}|${line.away_team}`, line.spread);
   }
 
-  const { error } = await sb
-    .from("games")
-    .upsert(rows, { onConflict: "cfbd_game_id" });
-  if (error) throw error;
+  const cfbdGameIds = games.map((g) => g.cfbd_game_id);
+  const { data: existingRows } = cfbdGameIds.length
+    ? await supabase
+        .from("games")
+        .select("cfbd_game_id, spread, spread_locked")
+        .in("cfbd_game_id", cfbdGameIds)
+    : { data: [] as any[] };
 
-  return { synced: rows.length };
+  const existingByCfbdId = new Map<number, { spread: number | null; spread_locked: boolean }>();
+  for (const row of existingRows ?? []) {
+    existingByCfbdId.set(row.cfbd_game_id, {
+      spread: row.spread,
+      spread_locked: row.spread_locked,
+    });
+  }
+
+  let upserted = 0;
+
+  for (const game of games) {
+    const existing = existingByCfbdId.get(game.cfbd_game_id);
+    const dkSpread = lineByMatchup.get(`${game.home_team}|${game.away_team}`) ?? null;
+
+    const spread = existing?.spread_locked ? existing.spread : dkSpread;
+    const status = game.completed ? "final" : "scheduled";
+
+    const row: Record<string, unknown> = {
+      cfbd_game_id: game.cfbd_game_id,
+      season,
+      week,
+      home_team: game.home_team,
+      away_team: game.away_team,
+      kickoff_time: game.kickoff_time,
+      home_score: game.home_score,
+      away_score: game.away_score,
+      status,
+      spread,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("games")
+      .upsert(row, { onConflict: "cfbd_game_id" });
+
+    if (error) {
+      throw new Error(`Failed to upsert game ${game.cfbd_game_id}: ${error.message}`);
+    }
+
+    upserted += 1;
+  }
+
+  return { upserted };
 }
 
 /**
- * Fetch DraftKings lines for the week and lock them in for every game that
- * is currently flagged `included_in_pickem`. Sets `spread` to the
- * DraftKings number (or null if DraftKings hasn't posted one) and marks
- * `spread_locked = true` so `syncWeek` never touches it again. Games not
- * included in the pick'em slate are left completely alone. Intended to run
- * Thursdays at noon (see app/api/cron/lock-lines/route.ts) but can also be
- * triggered manually from the admin week page.
+ * Fetches DraftKings lines for the week and, for every game where
+ * included_in_pickem = true, sets spread to the DraftKings number (or null
+ * if unavailable) and marks spread_locked = true. Games not included in the
+ * pick'em slate are left alone entirely.
  */
-export async function lockLinesForWeek(week: number) {
-  const year = seasonYear();
-  const sb = supabaseAdmin();
+export async function lockLinesForWeek(week: number): Promise<{ locked: number }> {
+  const season = getSeasonYear();
+  const supabase = supabaseAdmin();
 
-  const [lines, gamesRes] = await Promise.all([
-    getLines(year, week),
-    sb
-      .from("games")
-      .select("id, home_team, away_team")
-      .eq("season", year)
-      .eq("week", week)
-      .eq("included_in_pickem", true),
-  ]);
-  if (gamesRes.error) throw gamesRes.error;
+  const lines = await getLines(season, week);
+  const lineByMatchup = new Map<string, number | null>();
+  for (const line of lines) {
+    lineByMatchup.set(`${line.home_team}|${line.away_team}`, line.spread);
+  }
 
-  const lineByMatchup = new Map(
-    lines.map((l) => [`${l.home_team}__${l.away_team}`, l.spread])
-  );
+  const { data: includedGames, error: fetchError } = await supabase
+    .from("games")
+    .select("id, home_team, away_team")
+    .eq("season", season)
+    .eq("week", week)
+    .eq("included_in_pickem", true);
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch included games for week ${week}: ${fetchError.message}`);
+  }
 
   let locked = 0;
-  for (const game of gamesRes.data ?? []) {
-    const dkSpread =
-      lineByMatchup.get(`${game.home_team}__${game.away_team}`) ?? null;
 
-    const { error } = await sb
+  for (const game of includedGames ?? []) {
+    const spread = lineByMatchup.get(`${game.home_team}|${game.away_team}`) ?? null;
+
+    const { error } = await supabase
       .from("games")
-      .update({
-        spread: dkSpread,
-        spread_locked: true,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ spread, spread_locked: true, updated_at: new Date().toISOString() })
       .eq("id", game.id);
-    if (error) throw error;
+
+    if (error) {
+      throw new Error(`Failed to lock line for game ${game.id}: ${error.message}`);
+    }
+
     locked += 1;
   }
 
@@ -120,55 +138,80 @@ export async function lockLinesForWeek(week: number) {
 }
 
 /**
- * Refresh scores/status for a week's games from CFBD and compute ATS
- * results for anything that has finished.
+ * Fetches current scores/status for the week from CFBD and updates each
+ * matching DB row (matched by cfbd_game_id): home_score/away_score/status
+ * ('final' if CFBD reports completed, else 'in_progress' if scores exist,
+ * else left as-is), and computes ats_result via computeAtsResult when a
+ * game becomes final and has a non-null spread.
  */
-export async function scoreWeek(week: number) {
-  const year = seasonYear();
-  const sb = supabaseAdmin();
+export async function scoreWeek(week: number): Promise<{ updated: number }> {
+  const season = getSeasonYear();
+  const supabase = supabaseAdmin();
 
-  const [cfbdGames, { data: dbGames, error: dbErr }] = await Promise.all([
-    getGames(year, week),
-    sb.from("games").select("*").eq("week", week).eq("season", year),
-  ]);
-  if (dbErr) throw dbErr;
+  const games = await getGames(season, week);
 
-  const dbGameById = new Map((dbGames ?? []).map((g: any) => [g.cfbd_game_id, g]));
+  const cfbdGameIds = games.map((g) => g.cfbd_game_id);
+  const { data: existingRows, error: fetchError } = cfbdGameIds.length
+    ? await supabase
+        .from("games")
+        .select("id, cfbd_game_id, spread, status")
+        .in("cfbd_game_id", cfbdGameIds)
+    : { data: [] as any[], error: null };
+
+  if (fetchError) {
+    throw new Error(`Failed to fetch existing games for week ${week}: ${fetchError.message}`);
+  }
+
+  const existingByCfbdId = new Map<
+    number,
+    { id: string; spread: number | null; status: string }
+  >();
+  for (const row of existingRows ?? []) {
+    existingByCfbdId.set(row.cfbd_game_id, {
+      id: row.id,
+      spread: row.spread,
+      status: row.status,
+    });
+  }
 
   let updated = 0;
-  for (const cg of cfbdGames) {
-    const existing = dbGameById.get(cg.cfbd_game_id);
-    if (!existing) continue; // game not synced yet — run sync-week first
 
-    const hasScore = cg.home_score !== null && cg.away_score !== null;
-    let status: "scheduled" | "in_progress" | "final" = existing.status;
-    let atsResult: "home" | "away" | "push" | null = existing.ats_result;
+  for (const game of games) {
+    const existing = existingByCfbdId.get(game.cfbd_game_id);
+    if (!existing) continue;
 
-    if (cg.completed && hasScore) {
+    let status: string;
+    if (game.completed) {
       status = "final";
-      if (existing.spread !== null && existing.spread !== undefined) {
-        atsResult = computeAtsResult(
-          cg.home_score as number,
-          cg.away_score as number,
-          Number(existing.spread)
-        );
-      }
-    } else if (hasScore) {
+    } else if (game.home_score !== null || game.away_score !== null) {
       status = "in_progress";
+    } else {
+      status = existing.status;
     }
 
-    const { error } = await sb
-      .from("games")
-      .update({
-        home_score: cg.home_score,
-        away_score: cg.away_score,
-        status,
-        ats_result: atsResult,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("cfbd_game_id", cg.cfbd_game_id);
+    const update: Record<string, unknown> = {
+      home_score: game.home_score,
+      away_score: game.away_score,
+      status,
+      updated_at: new Date().toISOString(),
+    };
 
-    if (error) throw error;
+    if (
+      status === "final" &&
+      existing.spread !== null &&
+      existing.spread !== undefined &&
+      game.home_score !== null &&
+      game.away_score !== null
+    ) {
+      update.ats_result = computeAtsResult(game.home_score, game.away_score, existing.spread);
+    }
+
+    const { error } = await supabase.from("games").update(update).eq("id", existing.id);
+
+    if (error) {
+      throw new Error(`Failed to update score for game ${existing.id}: ${error.message}`);
+    }
+
     updated += 1;
   }
 

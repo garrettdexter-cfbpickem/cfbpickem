@@ -1,27 +1,17 @@
 "use client";
 
-import { useFormState, useFormStatus } from "react-dom";
-import type { Game } from "@/lib/types";
+import { useFormState } from "react-dom";
 import { submitPicks, type SubmitPicksState } from "@/app/picks/actions";
+import type { Game } from "@/lib/types";
+import SubmitButton from "./SubmitButton";
 
-function formatSpread(homeTeam: string, awayTeam: string, spread: number | null) {
-  if (spread === null || spread === undefined) return "no line";
-  if (spread < 0) return `${homeTeam} -${Math.abs(spread)}`;
-  if (spread > 0) return `${awayTeam} -${spread}`;
-  return "pick 'em";
-}
-
-function SubmitButton() {
-  const { pending } = useFormStatus();
-  return (
-    <button
-      type="submit"
-      disabled={pending}
-      className="bg-maroon text-white px-4 py-2 rounded-lg font-medium disabled:opacity-50"
-    >
-      {pending ? "Saving..." : "Save Picks"}
-    </button>
-  );
+interface PicksFormProps {
+  playerName: string;
+  week: number;
+  games: Game[];
+  existingPicks: Record<string, string>;
+  deadline: number | null;
+  alreadySubmitted: boolean;
 }
 
 export default function PicksForm({
@@ -31,36 +21,28 @@ export default function PicksForm({
   existingPicks,
   deadline,
   alreadySubmitted,
-}: {
-  playerName: string;
-  week: number;
-  games: Game[];
-  existingPicks: Record<string, string>;
-  deadline: number | null;
-  alreadySubmitted: boolean;
-}) {
-  const boundAction = submitPicks.bind(null, playerName, week);
-  const [state, formAction] = useFormState<SubmitPicksState, FormData>(boundAction, {
-    ok: false,
-  });
+}: PicksFormProps) {
+  const submitPicksWithArgs = submitPicks.bind(null, playerName, week);
+  const initialState: SubmitPicksState = { ok: false };
+  const [state, formAction] = useFormState(submitPicksWithArgs, initialState);
 
-  const locked = alreadySubmitted || state.ok;
-
-  if (locked) {
+  if (alreadySubmitted) {
     return (
-      <div className="border rounded-lg p-4 bg-white space-y-3">
-        <p className="text-green-700 font-medium">
-          Your picks are locked in for this week!
-        </p>
-        <div className="space-y-1">
-          {games.map((g) => {
-            const picked = existingPicks[g.id];
+      <div className="space-y-3">
+        <div className="rounded bg-lsuGold px-3 py-2 text-sm font-semibold text-lsuPurple">
+          Locked in! Your picks for Week {week} are submitted and can&apos;t be changed.
+        </div>
+        <div className="space-y-2">
+          {games.map((game) => {
+            const picked = existingPicks[game.id];
             return (
-              <div key={g.id} className="text-sm">
-                <span className="text-neutral-500">
-                  {g.away_team} @ {g.home_team}:
-                </span>{" "}
-                <span className="font-medium">{picked ?? "—"}</span>
+              <div key={game.id} className="rounded-lg border bg-white p-3">
+                <div className="font-medium">
+                  {game.away_team} @ {game.home_team}
+                </div>
+                <div className="mt-1 text-sm text-neutral-600">
+                  Your pick: <span className="font-semibold text-neutral-900">{picked ?? "—"}</span>
+                </div>
               </div>
             );
           })}
@@ -69,53 +51,69 @@ export default function PicksForm({
     );
   }
 
-  const deadlinePassed = deadline !== null && Date.now() >= deadline;
+  if (state.ok) {
+    return (
+      <div className="rounded bg-lsuGold px-3 py-2 text-sm font-semibold text-lsuPurple">
+        Locked in! Your picks for Week {week} have been submitted.
+      </div>
+    );
+  }
+
+  if (games.length === 0) {
+    return <p className="text-sm text-neutral-600">No games are open for picks this week yet.</p>;
+  }
 
   return (
-    <form action={formAction} className="space-y-3">
+    <form action={formAction} className="space-y-4">
       {state.error && (
-        <p className="text-red-700 bg-red-50 border border-red-200 rounded p-3 text-sm">
+        <div className="rounded border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
           {state.error}
+        </div>
+      )}
+      {deadline !== null && (
+        <p className="text-xs text-neutral-500">
+          Picks lock at {new Date(deadline).toLocaleString()} (first kickoff of the week).
         </p>
       )}
-
-      {deadlinePassed && (
-        <p className="text-red-700 bg-red-50 border border-red-200 rounded p-3 text-sm">
-          Picks are closed — the first game of the week has already kicked
-          off.
-        </p>
-      )}
-
-      {games.map((g) => {
-        const existing = existingPicks[g.id];
-        return (
-          <div key={g.id} className="border rounded-lg p-3 bg-white">
-            <div className="font-medium">
-              {g.away_team} <span className="text-neutral-400">@</span>{" "}
-              {g.home_team}
-            </div>
-            <div className="text-sm text-neutral-500 mb-2">
-              {formatSpread(g.home_team, g.away_team, g.spread)}
-            </div>
-            <div className="flex gap-4">
-              {[g.away_team, g.home_team].map((team) => (
-                <label key={team} className="flex items-center gap-2 text-sm">
+      <div className="space-y-3">
+        {games.map((game) => {
+          const current = existingPicks[game.id];
+          return (
+            <fieldset key={game.id} className="rounded-lg border bg-white p-3">
+              <legend className="px-1 text-sm font-medium">
+                {game.away_team} @ {game.home_team}
+              </legend>
+              <div className="mt-2 flex gap-4 text-sm">
+                <label className="flex items-center gap-2">
                   <input
                     type="radio"
-                    name={`pick_${g.id}`}
-                    value={team}
-                    defaultChecked={existing === team}
-                    disabled={deadlinePassed}
+                    name={`pick_${game.id}`}
+                    value={game.away_team}
+                    defaultChecked={current === game.away_team}
+                    required
                   />
-                  {team}
+                  {game.away_team}
                 </label>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-
-      <SubmitButton />
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name={`pick_${game.id}`}
+                    value={game.home_team}
+                    defaultChecked={current === game.home_team}
+                  />
+                  {game.home_team}
+                </label>
+              </div>
+            </fieldset>
+          );
+        })}
+      </div>
+      <SubmitButton
+        pendingText="Submitting…"
+        className="rounded bg-lsuPurple px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+      >
+        Submit Picks
+      </SubmitButton>
     </form>
   );
 }

@@ -3,35 +3,39 @@ import Link from "next/link";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CFB Pick 'Em",
-  description: "College football pick 'em league",
+  title: "CFB Pick'em",
+  description: "College football pick'em pool - weekly ATS picks, playoff pool, and Heisman pool.",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
-        <header className="bg-maroon text-white">
-          <nav className="max-w-4xl mx-auto flex items-center gap-6 px-4 py-3">
-            <Link href="/" className="font-bold text-lg">
-              🏈 Pick &apos;Em
+      <body className="min-h-screen bg-neutral-50 text-neutral-900">
+        <header className="bg-lsuPurple text-white">
+          <nav className="mx-auto flex max-w-4xl flex-wrap items-center gap-4 px-4 py-3">
+            <Link href="/" className="text-lg font-bold hover:text-lsuGold">
+              CFB Pick&apos;em
             </Link>
-            <Link href="/picks" className="hover:underline">
-              Make Picks
-            </Link>
-            <Link href="/standings" className="hover:underline">
-              Standings
-            </Link>
-            <Link href="/admin" className="hover:underline ml-auto text-sm opacity-80">
-              Admin
-            </Link>
+            <div className="flex flex-wrap gap-4 text-sm">
+              <Link href="/" className="hover:text-lsuGold">
+                Home
+              </Link>
+              <Link href="/picks" className="hover:text-lsuGold">
+                Make Picks
+              </Link>
+              <Link href="/picks/preseason" className="hover:text-lsuGold">
+                Preseason Picks
+              </Link>
+              <Link href="/standings" className="hover:text-lsuGold">
+                Standings
+              </Link>
+              <Link href="/admin" className="hover:text-lsuGold">
+                Admin
+              </Link>
+            </div>
           </nav>
         </header>
-        <main className="max-w-4xl mx-auto px-4 py-6">{children}</main>
+        <main className="mx-auto max-w-4xl px-4 py-6">{children}</main>
       </body>
     </html>
   );

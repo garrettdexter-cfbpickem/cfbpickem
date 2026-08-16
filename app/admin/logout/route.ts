@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
-import { ADMIN_COOKIE_NAME } from "@/lib/adminAuth";
+import { NextResponse } from "next/server";
+import { ADMIN_SESSION_COOKIE } from "@/lib/adminAuth";
 
-export async function GET(req: NextRequest) {
-  const res = NextResponse.redirect(new URL("/", req.url));
-  res.cookies.set(ADMIN_COOKIE_NAME, "", {
+export async function GET(request: Request) {
+  const response = NextResponse.redirect(new URL("/", request.url));
+  response.cookies.set(ADMIN_SESSION_COOKIE, "", {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
+    maxAge: 0,
     path: "/",
-    expires: new Date(0),
   });
-  return res;
+  return response;
 }

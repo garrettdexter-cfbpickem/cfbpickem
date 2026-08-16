@@ -1,25 +1,25 @@
 import Link from "next/link";
+import CombinedStandingsTable from "@/components/CombinedStandingsTable";
 import {
+  getPlayers,
   getAllGames,
   getAllPicks,
-  getPlayers,
   getPlayoffTeams,
   getPlayoffPicks,
   getHeismanCandidates,
   getHeismanPicks,
 } from "@/lib/data";
 import {
-  buildStandings,
-  buildCombinedStandings,
+  computeWeeklyPoints,
   computePlayoffPoints,
   computeHeismanPoints,
+  buildCombinedStandings,
 } from "@/lib/scoring";
-import CombinedStandingsTable from "@/components/CombinedStandingsTable";
 
 export const dynamic = "force-dynamic";
 
 export default async function StandingsPage() {
-  const [players, games, picks, playoffTeams, playoffPicks, heismanCandidates, heismanPicks] =
+  const [players, allGames, allPicks, playoffTeams, playoffPicks, heismanCandidates, heismanPicks] =
     await Promise.all([
       getPlayers(),
       getAllGames(),
@@ -30,42 +30,35 @@ export default async function StandingsPage() {
       getHeismanPicks(),
     ]);
 
-  const weeklyStandings = buildStandings(players, games, picks);
-  const playoffPointsByPlayer = computePlayoffPoints(playoffTeams, playoffPicks);
-  const heismanPointsByPlayer = computeHeismanPoints(heismanCandidates, heismanPicks);
-  const combined = buildCombinedStandings(
-    players,
-    weeklyStandings,
-    playoffPointsByPlayer,
-    heismanPointsByPlayer
-  );
+  const weeklyPoints = computeWeeklyPoints(players, allGames, allPicks);
+  const playoffPoints = computePlayoffPoints(playoffTeams, playoffPicks);
+  const heismanPoints = computeHeismanPoints(heismanCandidates, heismanPicks);
+  const standings = buildCombinedStandings(players, weeklyPoints, playoffPoints, heismanPoints);
 
-  const weeks = Array.from(new Set(games.map((g) => g.week))).sort(
-    (a, b) => a - b
-  );
+  const weeks = Array.from(new Set(allGames.map((g) => g.week))).sort((a, b) => a - b);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold">Season Standings</h1>
-      <CombinedStandingsTable rows={combined} />
+    <div className="space-y-8">
+      <section>
+        <h1 className="mb-3 text-xl font-bold">Combined Standings</h1>
+        <CombinedStandingsTable rows={standings} />
+      </section>
 
-      <div>
-        <h2 className="font-semibold mb-2">Weeks</h2>
+      <section>
+        <h2 className="mb-3 text-xl font-bold">Weeks</h2>
+        {weeks.length === 0 && <p className="text-sm text-neutral-600">No weeks synced yet.</p>}
         <div className="flex flex-wrap gap-2">
-          {weeks.map((w) => (
+          {weeks.map((week) => (
             <Link
-              key={w}
-              href={`/week/${w}`}
-              className="text-sm border rounded px-3 py-1 bg-white hover:bg-neutral-100"
+              key={week}
+              href={`/week/${week}`}
+              className="rounded border bg-white px-3 py-1.5 text-sm hover:border-lsuGold"
             >
-              Week {w}
+              Week {week}
             </Link>
           ))}
-          {weeks.length === 0 && (
-            <p className="text-neutral-500 text-sm">No weeks synced yet.</p>
-          )}
         </div>
-      </div>
+      </section>
     </div>
   );
 }

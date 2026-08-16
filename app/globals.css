@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+html,
 body {
-  @apply bg-neutral-50 text-neutral-900;
+  height: 100%;
 }

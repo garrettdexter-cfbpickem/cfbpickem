@@ -1,4 +1,6 @@
 import Link from "next/link";
+import GameRow from "@/components/GameRow";
+import CombinedStandingsTable from "@/components/CombinedStandingsTable";
 import {
   getCurrentWeek,
   getIncludedGamesForWeek,
@@ -11,89 +13,71 @@ import {
   getHeismanPicks,
 } from "@/lib/data";
 import {
-  buildStandings,
-  buildCombinedStandings,
+  computeWeeklyPoints,
   computePlayoffPoints,
   computeHeismanPoints,
+  buildCombinedStandings,
 } from "@/lib/scoring";
-import GameRow from "@/components/GameRow";
-import CombinedStandingsTable from "@/components/CombinedStandingsTable";
 
 export const dynamic = "force-dynamic";
 
 export default async function HomePage() {
-  const [
-    week,
-    players,
-    allGames,
-    allPicks,
-    playoffTeams,
-    playoffPicks,
-    heismanCandidates,
-    heismanPicks,
-  ] = await Promise.all([
-    getCurrentWeek(),
-    getPlayers(),
-    getAllGames(),
-    getAllPicks(),
-    getPlayoffTeams(),
-    getPlayoffPicks(),
-    getHeismanCandidates(),
-    getHeismanPicks(),
-  ]);
+  const week = await getCurrentWeek();
 
-  const weekGames = await getIncludedGamesForWeek(week);
+  const [games, players, allGames, allPicks, playoffTeams, playoffPicks, heismanCandidates, heismanPicks] =
+    await Promise.all([
+      getIncludedGamesForWeek(week),
+      getPlayers(),
+      getAllGames(),
+      getAllPicks(),
+      getPlayoffTeams(),
+      getPlayoffPicks(),
+      getHeismanCandidates(),
+      getHeismanPicks(),
+    ]);
 
-  const weeklyStandings = buildStandings(players, allGames, allPicks);
-  const playoffPointsByPlayer = computePlayoffPoints(playoffTeams, playoffPicks);
-  const heismanPointsByPlayer = computeHeismanPoints(heismanCandidates, heismanPicks);
-  const combined = buildCombinedStandings(
-    players,
-    weeklyStandings,
-    playoffPointsByPlayer,
-    heismanPointsByPlayer
-  ).slice(0, 5);
+  const weeklyPoints = computeWeeklyPoints(players, allGames, allPicks);
+  const playoffPoints = computePlayoffPoints(playoffTeams, playoffPicks);
+  const heismanPoints = computeHeismanPoints(heismanCandidates, heismanPicks);
+  const standings = buildCombinedStandings(players, weeklyPoints, playoffPoints, heismanPoints);
 
   return (
     <div className="space-y-8">
       <section>
-        <div className="flex items-baseline justify-between mb-3">
-          <h1 className="text-xl font-bold">Week {week}</h1>
-          <Link href={`/week/${week}`} className="text-sm text-maroon underline">
-            Full scoreboard &rarr;
+        <div className="mb-3 flex items-center justify-between">
+          <h1 className="text-xl font-bold">Week {week} Games</h1>
+          <Link href={`/week/${week}`} className="text-sm text-lsuPurple underline">
+            Full scoreboard
           </Link>
         </div>
-        {weekGames.length === 0 ? (
-          <p className="text-neutral-500">
-            No games are in the pick&apos;em slate for this week yet. Check
-            back once the admin has selected this week&apos;s games.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {weekGames.map((g) => (
-              <GameRow key={g.id} game={g} />
-            ))}
-          </div>
-        )}
+        <div className="space-y-2">
+          {games.length === 0 && (
+            <p className="text-sm text-neutral-600">
+              No games have been added to the pick&apos;em slate for this week yet.
+            </p>
+          )}
+          {games.map((game) => (
+            <GameRow key={game.id} game={game} />
+          ))}
+        </div>
+        <div className="mt-4">
+          <Link
+            href="/picks"
+            className="inline-block rounded bg-lsuPurple px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            Make Your Picks
+          </Link>
+        </div>
       </section>
 
       <section>
-        <div className="flex items-baseline justify-between mb-3">
-          <h2 className="text-xl font-bold">League Standings</h2>
-          <Link href="/standings" className="text-sm text-maroon underline">
-            Full standings &rarr;
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-xl font-bold">Standings</h2>
+          <Link href="/standings" className="text-sm text-lsuPurple underline">
+            Full standings
           </Link>
         </div>
-        <CombinedStandingsTable rows={combined} />
-      </section>
-
-      <section>
-        <Link
-          href="/picks"
-          className="inline-block bg-maroon text-white px-4 py-2 rounded-lg font-medium"
-        >
-          Make your picks for Week {week}
-        </Link>
+        <CombinedStandingsTable rows={standings.slice(0, 5)} />
       </section>
     </div>
   );

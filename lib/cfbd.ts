@@ -1,41 +1,43 @@
-// Thin wrapper around the CollegeFootballData.com REST API.
-// Docs: https://api.collegefootballdata.com
-//
-// NOTE: CFBD's response field names occasionally shift between API
-// versions. If sync-week or score-week start failing, check the current
-// shape at https://api.collegefootballdata.com and adjust the mapping
-// functions below (mapGame / mapLine).
+const CFBD_BASE_URL = "https://api.collegefootballdata.com";
 
-const BASE_URL = "https://api.collegefootballdata.com";
-
-function apiKey(): string {
+function getApiKey(): string {
   const key = process.env.CFBD_API_KEY;
-  if (!key) throw new Error("Missing CFBD_API_KEY env var");
+  if (!key) {
+    throw new Error(
+      "Missing CFBD_API_KEY environment variable. Set it in your .env.local (see .env.example)."
+    );
+  }
   return key;
 }
 
-async function cfbdFetch(path: string, params: Record<string, string>) {
-  const url = new URL(BASE_URL + path);
-  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+async function cfbdFetch(path: string, params: Record<string, string | number>) {
+  const url = new URL(CFBD_BASE_URL + path);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, String(value));
+  }
 
   const res = await fetch(url.toString(), {
     headers: {
-      Authorization: `Bearer ${apiKey()}`,
+      Authorization: `Bearer ${getApiKey()}`,
       Accept: "application/json",
     },
-    // Always fetch fresh data — this is only ever called from server routes.
+    // Always hit the network fresh - these are called from server-only sync
+    // jobs, not rendered pages, so Next's fetch cache would only get in the
+    // way.
     cache: "no-store",
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`CFBD request failed (${res.status}): ${body}`);
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `CFBD request failed: ${res.status} ${res.statusText} for ${url.toString()} - ${body}`
+    );
   }
 
   return res.json();
 }
 
-export type CfbdGame = {
+export interface CfbdGame {
   cfbd_game_id: number;
   home_team: string;
   away_team: string;
@@ -43,65 +45,90 @@ export type CfbdGame = {
   home_score: number | null;
   away_score: number | null;
   completed: boolean;
-};
+}
 
-export type CfbdLine = {
+export interface CfbdLine {
   home_team: string;
   away_team: string;
-  spread: number | null; // home team spread
-};
+  spread: number | null;
+}
 
-export async function getGames(
-  year: number,
-  week: number
-): Promise<CfbdGame[]> {
-  const raw = await cfbdFetch("/games", {
-    year: String(year),
-    week: String(week),
+/**
+ * Fetches games for a given year/week from CFBD's /games endpoint.
+ * Defensively maps CFBD's actual (camelCase) field names, falling back to
+ * snake_case variants in case an API version differs.
+ */
+export async function getGames(year: number, week: number): Promise<CfbdGame[]> {
+  const data = await cfbdFetch("/games", {
+    year,
+    week,
     seasonType: "regular",
     division: "fbs",
   });
 
-  return (raw as any[]).map((g) => ({
-    cfbd_game_id: g.id,
-    home_team: g.homeTeam ?? g.home_team,
-    away_team: g.awayTeam ?? g.away_team,
-    kickoff_time: g.startDate ?? g.start_date,
-    home_score: g.homePoints ?? g.home_points ?? null,
-    away_score: g.awayPoints ?? g.away_points ?? null,
-    completed: Boolean(g.completed),
-  }));
+  if (!Array.isArray(data)) return [];
+
+  return data.map((raw: any): CfbdGame => {
+    const cfbd_game_id = raw.id ?? raw.game_id ?? raw.gameId;
+    const home_team = raw.homeTeam ?? raw.home_team;
+    const away_team = raw.awayTeam ?? raw.away_team;
+    const kickoff_time = raw.startDate ?? raw.start_date;
+    const home_score = raw.homePoints ?? raw.home_points ?? null;
+    const away_score = raw.awayPoints ?? raw.away_points ?? null;
+    const completed =
+      raw.completed !== undefined && raw.completed !== null
+        ? raw.completed
+        : raw.status === "completed";
+
+    return {
+      cfbd_game_id,
+      home_team,
+      away_team,
+      kickoff_time,
+      home_score,
+      away_score,
+      completed: Boolean(completed),
+    };
+  });
 }
 
-export async function getLines(
-  year: number,
-  week: number
-): Promise<CfbdLine[]> {
-  const raw = await cfbdFetch("/lines", {
-    year: String(year),
-    week: String(week),
+/**
+ * Fetches DraftKings betting lines for a given year/week from CFBD's /lines
+ * endpoint. Each game returned by CFBD includes a `lines` array with one
+ * entry per sportsbook provider (DraftKings, Bovada, ESPN Bet, etc). We
+ * MUST select specifically the DraftKings line for each game rather than
+ * "whichever book happens to be first" or falling back to another book,
+ * because the app's whole spread-locking workflow is keyed to DraftKings
+ * numbers specifically (that's the book the pool has always used). If a
+ * game has no DraftKings line at all, we return spread: null for it rather
+ * than silently substituting a different sportsbook's number.
+ */
+export async function getLines(year: number, week: number): Promise<CfbdLine[]> {
+  const data = await cfbdFetch("/lines", {
+    year,
+    week,
     seasonType: "regular",
   });
 
-  return (raw as any[]).map((g) => {
-    const lines = g.lines ?? [];
-    // The owner requires the spread to come specifically from DraftKings.
-    // If DraftKings hasn't posted a line for this game, leave spread null
-    // rather than silently substituting a "consensus" number or whichever
-    // book happens to be first in the array — a wrong-but-present spread is
-    // worse than a visibly blank one here.
-    const preferred = lines.find((l: any) => /draftkings/i.test(l.provider ?? "")) ?? null;
+  if (!Array.isArray(data)) return [];
 
-    const spreadRaw = preferred?.spread;
-    const spread =
-      spreadRaw === undefined || spreadRaw === null
-        ? null
-        : Number(spreadRaw);
+  return data.map((raw: any): CfbdLine => {
+    const home_team = raw.homeTeam ?? raw.home_team;
+    const away_team = raw.awayTeam ?? raw.away_team;
+    const lines: any[] = raw.lines ?? [];
 
-    return {
-      home_team: g.homeTeam ?? g.home_team,
-      away_team: g.awayTeam ?? g.away_team,
-      spread,
-    };
+    const dkLine = lines.find((line) => {
+      const provider = line.provider ?? line.providerName ?? "";
+      return /draftkings/i.test(String(provider));
+    });
+
+    let spread: number | null = null;
+    if (dkLine) {
+      const rawSpread = dkLine.spread ?? dkLine.spread_home ?? dkLine.spreadHome;
+      spread = rawSpread === undefined || rawSpread === null ? null : Number(rawSpread);
+      if (spread !== null && Number.isNaN(spread)) spread = null;
+    }
+
+    return { home_team, away_team, spread };
   });
 }

@@ -1,115 +1,119 @@
+import GameRow from "@/components/GameRow";
 import {
   getIncludedGamesForWeek,
-  getPicksForWeek,
   getPlayers,
   getWeeklySubmissionsForWeek,
+  getPicksForWeek,
 } from "@/lib/data";
-import GameRow from "@/components/GameRow";
 
 export const dynamic = "force-dynamic";
 
-export default async function WeekPage({
-  params,
-}: {
-  params: { week: string };
-}) {
+export default async function WeekPage({ params }: { params: { week: string } }) {
   const week = Number(params.week);
-  const [games, picks, players, submissions] = await Promise.all([
+
+  const [games, allPlayers, submissions, picks] = await Promise.all([
     getIncludedGamesForWeek(week),
-    getPicksForWeek(week),
     getPlayers(),
     getWeeklySubmissionsForWeek(week),
+    getPicksForWeek(week),
   ]);
 
-  const submittedPlayerIds = new Set(submissions.map((s) => s.player_id));
+  // Reveal-all logic: picks for the week are only shown once EITHER every
+  // player has submitted, OR the first game of the week has kicked off.
+  // Before that, showing any individual player's picks would let players who
+  // haven't submitted yet see (and copy) picks from players who already
+  // have, which is exactly the bug this page used to have.
+  const allSubmitted =
+    allPlayers.length > 0 && allPlayers.every((p) => submissions.some((s) => s.player_id === p.id));
 
-  const pickByPlayerAndGame = new Map<string, string>();
-  for (const p of picks) pickByPlayerAndGame.set(`${p.player_id}:${p.game_id}`, p.picked_team);
+  const firstKickoff = games.length
+    ? Math.min(...games.map((g) => new Date(g.kickoff_time).getTime()))
+    : null;
 
-  const now = Date.now();
+  const revealAll = allSubmitted || (firstKickoff !== null && Date.now() >= firstKickoff);
+
+  const picksByGameAndPlayer = new Map<string, string>();
+  for (const pick of picks) {
+    picksByGameAndPlayer.set(`${pick.game_id}|${pick.player_id}`, pick.picked_team);
+  }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold">Week {week} Scoreboard</h1>
+    <div className="space-y-8">
+      <section>
+        <h1 className="mb-3 text-xl font-bold">Week {week} Scoreboard</h1>
+        <div className="space-y-2">
+          {games.length === 0 && (
+            <p className="text-sm text-neutral-600">No games in the pick&apos;em slate for this week.</p>
+          )}
+          {games.map((game) => (
+            <GameRow key={game.id} game={game} />
+          ))}
+        </div>
+      </section>
 
-      <div className="space-y-2">
-        {games.map((g) => (
-          <GameRow key={g.id} game={g} />
-        ))}
-        {games.length === 0 && (
-          <p className="text-neutral-500">
-            No games are in the pick&apos;em slate for this week yet.
+      <section>
+        <h2 className="mb-3 text-xl font-bold">Everyone&apos;s Picks</h2>
+        {!revealAll && (
+          <p className="rounded-lg border bg-white p-3 text-sm text-neutral-600">
+            Picks are hidden until everyone has submitted or the first game kicks off &mdash;{" "}
+            {submissions.length} of {allPlayers.length} players have submitted so far.
           </p>
         )}
-      </div>
-
-      {players.length > 0 && games.length > 0 && (
-        <div className="overflow-x-auto">
-          <h2 className="font-semibold mb-2">Everyone&apos;s Picks</h2>
-          <p className="text-xs text-neutral-500 mb-2">
-            A player&apos;s pick for a game is only revealed once they&apos;ve
-            submitted their picks for the week, or that game has kicked off
-            — whichever comes first.
-          </p>
-          <table className="w-full text-sm border-collapse bg-white">
-            <thead>
-              <tr className="border-b">
-                <th className="text-left p-2">Game</th>
-                {players.map((pl) => (
-                  <th key={pl.id} className="p-2 text-left whitespace-nowrap">
-                    {pl.name}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {games.map((g) => {
-                const kickoffPassed = new Date(g.kickoff_time).getTime() <= now;
-                return (
-                  <tr key={g.id} className="border-b last:border-0">
-                    <td className="p-2 whitespace-nowrap">
-                      {g.away_team} @ {g.home_team}
+        {revealAll && games.length > 0 && allPlayers.length > 0 && (
+          <div className="overflow-x-auto rounded-lg border bg-white">
+            <table className="w-full text-left text-sm">
+              <thead className="border-b bg-neutral-50 text-neutral-600">
+                <tr>
+                  <th className="px-3 py-2">Game</th>
+                  {allPlayers.map((player) => (
+                    <th key={player.id} className="px-3 py-2">
+                      {player.name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {games.map((game) => (
+                  <tr key={game.id} className="border-b last:border-b-0">
+                    <td className="px-3 py-2 font-medium">
+                      {game.away_team} @ {game.home_team}
                     </td>
-                    {players.map((pl) => {
-                      const picked = pickByPlayerAndGame.get(`${pl.id}:${g.id}`);
-                      const canReveal = submittedPlayerIds.has(pl.id) || kickoffPassed;
-
-                      let cellClass = "p-2";
-                      let content = "—";
-
-                      if (picked) {
-                        if (canReveal) {
-                          content = picked;
-                          if (g.status === "final" && g.ats_result) {
-                            const coveringTeam =
-                              g.ats_result === "home" ? g.home_team : g.away_team;
-                            if (g.ats_result === "push") {
-                              cellClass += " text-neutral-500";
-                            } else if (picked === coveringTeam) {
-                              cellClass += " text-green-700 font-medium";
-                            } else {
-                              cellClass += " text-red-600 line-through";
-                            }
-                          }
+                    {allPlayers.map((player) => {
+                      const picked = picksByGameAndPlayer.get(`${game.id}|${player.id}`);
+                      let cellClass = "px-3 py-2 text-neutral-500";
+                      if (picked && game.status === "final" && game.ats_result) {
+                        const coveringTeam =
+                          game.ats_result === "home"
+                            ? game.home_team
+                            : game.ats_result === "away"
+                            ? game.away_team
+                            : null;
+                        if (game.ats_result === "push") {
+                          cellClass = "px-3 py-2 text-neutral-500";
+                        } else if (picked === coveringTeam) {
+                          cellClass = "px-3 py-2 text-green-700 font-semibold";
                         } else {
-                          content = "picked";
-                          cellClass += " text-neutral-400 italic";
+                          cellClass = "px-3 py-2 text-red-600 line-through";
                         }
+                      } else if (picked) {
+                        cellClass = "px-3 py-2 text-neutral-900";
                       }
-
                       return (
-                        <td key={pl.id} className={cellClass}>
-                          {content}
+                        <td key={player.id} className={cellClass}>
+                          {picked ?? "-"}
                         </td>
                       );
                     })}
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {revealAll && (games.length === 0 || allPlayers.length === 0) && (
+          <p className="text-sm text-neutral-600">Nothing to show yet.</p>
+        )}
+      </section>
     </div>
   );
 }

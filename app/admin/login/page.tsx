@@ -4,8 +4,7 @@ export const dynamic = "force-dynamic";
 
 export default function AdminLoginPage() {
   return (
-    <div className="max-w-sm mx-auto space-y-4">
-      <h1 className="text-xl font-bold">Admin Login</h1>
+    <div className="py-10">
       <AdminLoginForm />
     </div>
   );

@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "./supabase";
 import type {
-  Game,
   Player,
+  Game,
   Pick,
   WeeklySubmission,
   PreseasonSubmission,
@@ -12,190 +12,183 @@ import type {
 } from "./types";
 
 export async function getPlayers(): Promise<Player[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.from("players").select("*").order("name");
-  if (error) throw error;
-  return data as Player[];
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.from("players").select("*").order("name");
+  if (error) throw new Error(`getPlayers failed: ${error.message}`);
+  return data ?? [];
 }
 
 export async function getAllGames(): Promise<Game[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
     .from("games")
     .select("*")
     .order("week", { ascending: true })
     .order("kickoff_time", { ascending: true });
-  if (error) throw error;
-  return data as Game[];
+  if (error) throw new Error(`getAllGames failed: ${error.message}`);
+  return data ?? [];
 }
 
-/**
- * Every game synced for a week, regardless of `included_in_pickem`.
- * Admin-only use (the admin week page needs to see everything CFBD synced
- * so it can choose which ones to include).
- */
 export async function getGamesForWeek(week: number): Promise<Game[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
     .from("games")
     .select("*")
     .eq("week", week)
     .order("kickoff_time", { ascending: true });
-  if (error) throw error;
-  return data as Game[];
+  if (error) throw new Error(`getGamesForWeek failed: ${error.message}`);
+  return data ?? [];
 }
 
-/**
- * Player-facing equivalent of getGamesForWeek — only games the admin has
- * curated into the pick'em slate. Use this (not getGamesForWeek) for any
- * page a player sees.
- */
 export async function getIncludedGamesForWeek(week: number): Promise<Game[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
     .from("games")
     .select("*")
     .eq("week", week)
     .eq("included_in_pickem", true)
     .order("kickoff_time", { ascending: true });
-  if (error) throw error;
-  return data as Game[];
+  if (error) throw new Error(`getIncludedGamesForWeek failed: ${error.message}`);
+  return data ?? [];
 }
 
 export async function getAllPicks(): Promise<Pick[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.from("picks").select("*");
-  if (error) throw error;
-  return data as Pick[];
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.from("picks").select("*");
+  if (error) throw new Error(`getAllPicks failed: ${error.message}`);
+  return data ?? [];
 }
 
 export async function getPicksForWeek(week: number): Promise<Pick[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.from("picks").select("*").eq("week", week);
-  if (error) throw error;
-  return data as Pick[];
-}
-
-export async function getWeeklySubmission(
-  playerId: string,
-  week: number
-): Promise<WeeklySubmission | null> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("weekly_submissions")
-    .select("*")
-    .eq("player_id", playerId)
-    .eq("week", week)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as WeeklySubmission | null) ?? null;
-}
-
-export async function getWeeklySubmissionsForWeek(
-  week: number
-): Promise<WeeklySubmission[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("weekly_submissions")
-    .select("*")
-    .eq("week", week);
-  if (error) throw error;
-  return (data as WeeklySubmission[]) ?? [];
-}
-
-export async function getPreseasonSubmission(
-  playerId: string
-): Promise<PreseasonSubmission | null> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("preseason_submissions")
-    .select("*")
-    .eq("player_id", playerId)
-    .maybeSingle();
-  if (error) throw error;
-  return (data as PreseasonSubmission | null) ?? null;
-}
-
-export async function getPlayoffTeams(): Promise<PlayoffTeam[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("playoff_teams")
-    .select("*")
-    .order("team_name");
-  if (error) throw error;
-  return (data as PlayoffTeam[]) ?? [];
-}
-
-export async function getPlayoffPicks(): Promise<PlayoffPick[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.from("playoff_picks").select("*");
-  if (error) throw error;
-  return (data as PlayoffPick[]) ?? [];
-}
-
-export async function getPlayoffPicksForPlayer(
-  playerId: string
-): Promise<PlayoffPick[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("playoff_picks")
-    .select("*")
-    .eq("player_id", playerId);
-  if (error) throw error;
-  return (data as PlayoffPick[]) ?? [];
-}
-
-export async function getHeismanCandidates(): Promise<HeismanCandidate[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("heisman_candidates")
-    .select("*")
-    .order("candidate_name");
-  if (error) throw error;
-  return (data as HeismanCandidate[]) ?? [];
-}
-
-export async function getHeismanPicks(): Promise<HeismanPick[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb.from("heisman_picks").select("*");
-  if (error) throw error;
-  return (data as HeismanPick[]) ?? [];
-}
-
-export async function getHeismanPicksForPlayer(
-  playerId: string
-): Promise<HeismanPick[]> {
-  const sb = supabaseAdmin();
-  const { data, error } = await sb
-    .from("heisman_picks")
-    .select("*")
-    .eq("player_id", playerId);
-  if (error) throw error;
-  return (data as HeismanPick[]) ?? [];
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.from("picks").select("*").eq("week", week);
+  if (error) throw new Error(`getPicksForWeek failed: ${error.message}`);
+  return data ?? [];
 }
 
 /**
- * "Current" week = the highest week number that has a game kicking off
- * within the last 4 days or the next 14 days. Falls back to the most
- * recent week with any games, or week 1 if the season hasn't been
- * synced yet.
+ * The highest week number with a game kicking off within the last 4 days or
+ * the next 14 days (based on ALL games, not just included ones). Falls back
+ * to the max week with any games, and falls back to 1 if no games exist.
  */
 export async function getCurrentWeek(): Promise<number> {
   const games = await getAllGames();
   if (games.length === 0) return 1;
 
   const now = Date.now();
-  const fourDaysMs = 4 * 24 * 60 * 60 * 1000;
-  const fourteenDaysMs = 14 * 24 * 60 * 60 * 1000;
+  const fourDaysAgo = now - 4 * 24 * 60 * 60 * 1000;
+  const fourteenDaysAhead = now + 14 * 24 * 60 * 60 * 1000;
 
-  const inWindow = games.filter((g) => {
-    const t = new Date(g.kickoff_time).getTime();
-    return t > now - fourDaysMs && t < now + fourteenDaysMs;
-  });
+  const candidateWeeks = games
+    .filter((g) => {
+      const kickoff = new Date(g.kickoff_time).getTime();
+      return kickoff >= fourDaysAgo && kickoff <= fourteenDaysAhead;
+    })
+    .map((g) => g.week);
 
-  if (inWindow.length > 0) {
-    return Math.max(...inWindow.map((g) => g.week));
+  if (candidateWeeks.length > 0) {
+    return Math.max(...candidateWeeks);
   }
 
-  return Math.max(...games.map((g) => g.week));
+  const allWeeks = games.map((g) => g.week);
+  return Math.max(...allWeeks);
+}
+
+export async function getWeeklySubmission(
+  playerId: string,
+  week: number
+): Promise<WeeklySubmission | null> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("weekly_submissions")
+    .select("*")
+    .eq("player_id", playerId)
+    .eq("week", week)
+    .maybeSingle();
+  if (error) throw new Error(`getWeeklySubmission failed: ${error.message}`);
+  return data;
+}
+
+export async function getWeeklySubmissionsForWeek(week: number): Promise<WeeklySubmission[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("weekly_submissions")
+    .select("*")
+    .eq("week", week);
+  if (error) throw new Error(`getWeeklySubmissionsForWeek failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getPreseasonSubmission(
+  playerId: string
+): Promise<PreseasonSubmission | null> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("preseason_submissions")
+    .select("*")
+    .eq("player_id", playerId)
+    .maybeSingle();
+  if (error) throw new Error(`getPreseasonSubmission failed: ${error.message}`);
+  return data;
+}
+
+export async function getAllPreseasonSubmissions(): Promise<PreseasonSubmission[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.from("preseason_submissions").select("*");
+  if (error) throw new Error(`getAllPreseasonSubmissions failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getPlayoffTeams(): Promise<PlayoffTeam[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("playoff_teams")
+    .select("*")
+    .order("team_name");
+  if (error) throw new Error(`getPlayoffTeams failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getPlayoffPicks(): Promise<PlayoffPick[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.from("playoff_picks").select("*");
+  if (error) throw new Error(`getPlayoffPicks failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getPlayoffPicksForPlayer(playerId: string): Promise<PlayoffPick[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("playoff_picks")
+    .select("*")
+    .eq("player_id", playerId);
+  if (error) throw new Error(`getPlayoffPicksForPlayer failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getHeismanCandidates(): Promise<HeismanCandidate[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("heisman_candidates")
+    .select("*")
+    .order("candidate_name");
+  if (error) throw new Error(`getHeismanCandidates failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getHeismanPicks(): Promise<HeismanPick[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase.from("heisman_picks").select("*");
+  if (error) throw new Error(`getHeismanPicks failed: ${error.message}`);
+  return data ?? [];
+}
+
+export async function getHeismanPicksForPlayer(playerId: string): Promise<HeismanPick[]> {
+  const supabase = supabaseAdmin();
+  const { data, error } = await supabase
+    .from("heisman_picks")
+    .select("*")
+    .eq("player_id", playerId);
+  if (error) throw new Error(`getHeismanPicksForPlayer failed: ${error.message}`);
+  return data ?? [];
 }

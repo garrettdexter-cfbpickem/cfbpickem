@@ -1,6 +1,6 @@
 import { requireAdmin } from "@/lib/adminAuth";
 import { getPlayoffTeams } from "@/lib/data";
-import { addPlayoffTeam, savePlayoffTeams } from "@/app/admin/actions";
+import { addPlayoffTeamAction, savePlayoffTeamAction } from "@/app/admin/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -9,64 +9,72 @@ export default async function AdminPlayoffPage() {
   const teams = await getPlayoffTeams();
 
   return (
-    <div className="space-y-6 max-w-xl">
+    <div className="space-y-6">
       <h1 className="text-xl font-bold">Admin — Playoff Pool</h1>
 
-      <form action={addPlayoffTeam} className="flex gap-2">
-        <input
-          name="team_name"
-          placeholder="Team name"
-          required
-          className="border rounded-lg px-3 py-2 flex-1"
-        />
-        <button className="bg-maroon text-white px-4 py-2 rounded-lg font-medium">
-          Add
-        </button>
-      </form>
-
-      {teams.length === 0 ? (
-        <p className="text-neutral-500 text-sm">
-          No teams yet — they&apos;ll also appear automatically once players
-          submit their preseason picks.
-        </p>
-      ) : (
-        <form action={savePlayoffTeams} className="space-y-2">
-          <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center text-xs font-medium text-neutral-500 px-1">
-            <div>Team</div>
-            <div>Made field</div>
-            <div>1st-rd bye</div>
-            <div>Rounds won</div>
-          </div>
-          {teams.map((t) => (
-            <div
-              key={t.id}
-              className="grid grid-cols-[1fr_auto_auto_auto] gap-3 items-center border rounded-lg p-3 bg-white"
-            >
-              <div className="font-medium">{t.team_name}</div>
-              <input
-                type="checkbox"
-                name={`made_field_${t.id}`}
-                defaultChecked={t.made_field}
-              />
-              <input
-                type="checkbox"
-                name={`had_bye_${t.id}`}
-                defaultChecked={t.had_bye}
-              />
-              <input
-                type="number"
-                min={0}
-                name={`rounds_won_${t.id}`}
-                defaultValue={t.rounds_won}
-                className="border rounded px-2 py-1 w-16"
-              />
-            </div>
-          ))}
-          <button className="bg-maroon text-white px-4 py-2 rounded-lg font-medium">
-            Save
+      <div className="rounded-lg border bg-white p-4">
+        <h2 className="mb-2 font-semibold">Add a Team</h2>
+        <form action={addPlayoffTeamAction} className="flex gap-2">
+          <input
+            type="text"
+            name="team_name"
+            placeholder="Team name"
+            required
+            className="flex-1 rounded border px-3 py-2 text-sm"
+          />
+          <button
+            type="submit"
+            className="rounded bg-lsuPurple px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+          >
+            Add
           </button>
         </form>
-      )}
+      </div>
+
+      <div className="space-y-2">
+        {teams.map((team) => (
+          <form
+            key={team.id}
+            action={savePlayoffTeamAction}
+            className="flex flex-wrap items-center gap-4 rounded-lg border bg-white p-3"
+          >
+            <input type="hidden" name="id" value={team.id} />
+            <span className="min-w-[10rem] font-medium">{team.team_name}</span>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                name="made_field"
+                defaultChecked={team.made_field}
+              />
+              Made field
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" name="had_bye" defaultChecked={team.had_bye} />
+              First-round bye
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              Rounds won
+              <input
+                type="number"
+                name="rounds_won"
+                min={0}
+                max={4}
+                defaultValue={team.rounds_won}
+                className="w-16 rounded border px-2 py-1"
+              />
+            </label>
+            <button
+              type="submit"
+              className="rounded bg-lsuPurple px-3 py-1.5 text-sm font-semibold text-white hover:opacity-90"
+            >
+              Save
+            </button>
+          </form>
+        ))}
+        {teams.length === 0 && (
+          <p className="text-sm text-neutral-600">No playoff teams yet.</p>
+        )}
+      </div>
     </div>
   );
 }
