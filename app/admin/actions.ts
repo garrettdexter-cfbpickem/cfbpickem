@@ -189,6 +189,9 @@ export async function addPlayerAction(formData: FormData): Promise<AddPlayerStat
 
   revalidatePath("/admin/players");
   revalidatePath("/picks");
+  revalidatePath("/picks/preseason");
+  revalidatePath("/standings");
+  revalidatePath("/");
 
   return { ok: true, name };
 }
