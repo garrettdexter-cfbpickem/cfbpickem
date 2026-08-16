@@ -37,9 +37,11 @@ export default async function AdminHomePage() {
           Players
         </Link>
       </div>
-      <Link href="/admin/logout" className="inline-block text-sm text-neutral-600 underline">
-        Log out
-      </Link>
+      <form action="/admin/logout" method="POST">
+        <button type="submit" className="inline-block text-sm text-neutral-600 underline">
+          Log out
+        </button>
+      </form>
     </div>
   );
 }
