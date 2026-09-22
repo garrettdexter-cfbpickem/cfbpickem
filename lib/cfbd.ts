@@ -71,7 +71,7 @@ export async function getGames(year: number, week: number): Promise<CfbdGame[]> 
           year,
           week,
           seasonType: "regular",
-          division: "fbs",
+          classification: "fbs",
     });
 
   if (!Array.isArray(data)) return [];
