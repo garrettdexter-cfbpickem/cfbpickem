@@ -151,4 +151,3 @@ export default async function AdminWeekPage({ params }: { params: { week: string
         </div>
       );
 }
-</div>
