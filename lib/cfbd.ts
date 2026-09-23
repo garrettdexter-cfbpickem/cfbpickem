@@ -13,7 +13,7 @@ function getApiKey(): string {
 async function cfbdFetch(path: string, params: Record<string, string | number>) {
       const url = new URL(CFBD_BASE_URL + path);
       for (const [key, value] of Object.entries(params)) {
-              url.searchParams.set(key, Sthring(value));
+              url.searchParams.set(key, String(value));
       }
 
   const res = await fetch(url.toString(), {
