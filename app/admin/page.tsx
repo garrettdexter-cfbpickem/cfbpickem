@@ -38,6 +38,17 @@ export default async function AdminHomePage() {
                                 >
                                 Players
                       </Link>
+        <Link
+
+          href="/admin/adjustments"
+
+          className="rounded-lg border bg-white p-4 font-medium hover:border-lsuGold"
+
+        >
+
+          Manual Point Adjustments
+
+        </Link>
               </div>
               <Link href="/admin/logout" className="inline-block text-sm text-neutral-600 underline">
                       Log out
