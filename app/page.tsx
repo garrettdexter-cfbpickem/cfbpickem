@@ -18,6 +18,7 @@ import {
   computeHeismanPoints,
   buildCombinedStandings,
 } from "@/lib/scoring";
+import { getPointAdjustments, computeAdjustmentPoints, applyAdjustments } from "@/lib/adjustments";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,10 @@ export default async function HomePage() {
   const weeklyPoints = computeWeeklyPoints(players, allGames, allPicks);
   const playoffPoints = computePlayoffPoints(playoffTeams, playoffPicks);
   const heismanPoints = computeHeismanPoints(heismanCandidates, heismanPicks);
-  const standings = buildCombinedStandings(players, weeklyPoints, playoffPoints, heismanPoints);
+  const standings = applyAdjustments(
+    buildCombinedStandings(players, weeklyPoints, playoffPoints, heismanPoints),
+    computeAdjustmentPoints(await getPointAdjustments())
+  );
 
   return (
     <div className="space-y-8">
