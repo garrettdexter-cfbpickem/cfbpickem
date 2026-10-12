@@ -1,7 +1,7 @@
 import { requireAdmin } from "@/lib/adminAuth";
 import { getPlayers } from "@/lib/data";
 import { getPointAdjustments } from "@/lib/adjustments";
-import { addAdjustmentAction, deleteAdjustmentAction } from "./actions";
+import { addAdjustmentAction, deletedAdjustmentAction } from "./actions";
 
 export const dynamic = "force-dynamic";
 
